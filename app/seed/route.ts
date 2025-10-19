@@ -2,10 +2,34 @@ import bcrypt from 'bcrypt';
 import postgres from 'postgres';
 import { invoices, customers, revenue, users } from '../lib/placeholder-data';
 
-const sql = postgres(process.env.POSTGRES_URL!, { ssl: 'require' });
+const sql = postgres(process.env.POSTGRES_URL!, { ssl: 'require', 
+  onnotice: (n => {
+    if(n.code !== '42P07'){
+      console.warn('PG notice:', n);
+    }
+  }) 
+});
+
+export async function ensureUuidOssp() {
+  try {
+    await sql`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`;
+  } catch (err: any) {
+    // Postgres SQLSTATE codes:
+    // 42710 = duplicate_object (extension already exists)
+    // 42P07 = relation X already exists
+    // 42501 = insufficient_privilege
+    // 58P01 = undefined_file (control file missing - extension not installed on server)
+    if (err?.code === "42710") {
+      // Safe to ignore — extension already present
+      return;
+    }
+    // Anything else should surface so you don't mask real problems
+    throw err;
+  }
+}
 
 async function seedUsers() {
-  await sql`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`;
+  //await sql`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`;
   await sql`
     CREATE TABLE IF NOT EXISTS users (
       id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
@@ -26,11 +50,12 @@ async function seedUsers() {
     }),
   );
 
+  console.log(`insertedUsers: ${insertedUsers}`);
   return insertedUsers;
 }
 
 async function seedInvoices() {
-  await sql`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`;
+  //await sql`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`;
 
   await sql`
     CREATE TABLE IF NOT EXISTS invoices (
@@ -56,7 +81,7 @@ async function seedInvoices() {
 }
 
 async function seedCustomers() {
-  await sql`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`;
+  //await sql`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`;
 
   await sql`
     CREATE TABLE IF NOT EXISTS customers (
@@ -104,6 +129,7 @@ async function seedRevenue() {
 export async function GET() {
   try {
     const result = await sql.begin((sql) => [
+      ensureUuidOssp(),
       seedUsers(),
       seedCustomers(),
       seedInvoices(),
